@@ -4,17 +4,22 @@
 #include <readline/readline.h>
 #include <readline/history.h>
 #include <signal.h>
+#include <string.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <bits/waitflags.h>
 
-#define V "1.0"
 /* Globales */
+#define V "1.0"
 #define NBMAXC 10 /* Nb maxi de commandes internes */
+#define HIST_FILE "hist_file"
 int Mots_base_size = 64;
 int Mots_size = 64;
 static char ** Mots; /* le tableau des mots de la commande */
 static int NMots; /* nombre de mots de la commande */
 char *header;
+char *input;
+char *command;
 
 /* Définitions */
 char* head(void);
@@ -117,6 +122,8 @@ int execComExt(char **P){
 /* Commandes */
 
 int Sortie(int N, char *P[]) { 
+	write_history(HIST_FILE);
+	free(input);
 	free(header);
 	freeMots();
 	exit(0);
@@ -149,6 +156,8 @@ int Vers(int N, char *P[]){
 void interrupt(int S)
 {
 	printf("Interrupt : %d\n", S);	
+	write_history(HIST_FILE);
+	free(input);
 	free(header);
 	freeMots();
 	exit(1);
@@ -222,16 +231,13 @@ char* copyString(char *s){
 int analyseCom(char *b){
 	
 	// Mots memory preparation
-	for(int i = 0; i<Mots_size; i++){
-		free(Mots[i]);
-	}
-	free(Mots);
 	Mots = (char **)malloc(sizeof(char *)*Mots_base_size);
 	
-	char* out = "vide";
+	char* out;
 	int cnt = 0;
 	
-	while((out = strsep(&b, " ")) != NULL){
+	while((out = strsep(&b, " \t\n")) != NULL){
+		if(*out=='\0') return -1;
 		Mots[cnt] = copyString(out);
 		cnt = cnt + 1;
 		if(cnt >=Mots_size){
@@ -247,8 +253,6 @@ int analyseCom(char *b){
 
 int main(void)
 {
-	char *input;
-	char *command;
 	Mots = (char **)malloc(sizeof(char *)*Mots_base_size);
 	
 	signal(SIGINT,interrupt);
@@ -258,24 +262,30 @@ int main(void)
 		return 1;
 	}
 	
+	read_history(HIST_FILE);
+	
 	majComInt();
-	listeComInt();
 	
 	while(1){
 		printf("%s ", header);
 		input = readline(NULL);
 		while((command=strsep(&input,";"))!=NULL){
 			int N = analyseCom(command);
+			printf("Yo\n");
 			if(N>0){
 				if(execComInt(NMots, Mots)){
 					execComExt(Mots);
-				}	
+				}
+				add_history(command);	
+				freeMots();
+			}
+			if(N==-1){
+				printf("\n");
 			}
 		}
-	}
+		
 	
-	free(header);
-	freeMots();
+	}
 
 	return 0;
 }
