@@ -1,104 +1,34 @@
-#include "biceps.h"
+#include <unistd.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <readline/readline.h>
+#include <readline/history.h>
+#include <signal.h>
+#include <string.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <bits/waitflags.h>
+#include "gescom.h"
 
-/* Gestion des commandes */
+char* HIST_FILE = "hist_file";
+int Mots_base_size = 64;
 
-void ajouteCom(char *nom, int (*fptr)(int argc, char *argv[])){
-	if(cmds_size>=NBMAXC){
-		exit(1);
-	}
-	
-	Command mac;
-	mac.nom = nom;
-	mac.fptr = fptr;
-	cmds[cmds_size]=mac;
-	cmds_size += 1;
-}
+int Mots_size = 64;
+static char ** Mots; /* le tableau des mots de la commande */
+static int NMots = 0; /* nombre de mots de la commande */
+char* save;
 
-void majComInt(void){
-	ajouteCom("exit",Sortie);
-	ajouteCom("cd",Changedir);
-	ajouteCom("pwd", printWorkingDir);
-	ajouteCom("vers", Vers);
-}
+char *header;
+char *input;
+char *command;
 
-void listeComInt(void){
-	for(int i = 0; i<cmds_size; i++){
-		printf("%s ", cmds[i].nom);
-	}
-	printf("\n");
-}
+/* Def */
+char* head(void);
+void interrupt(int S);
+int analyseCom(char *b);
+void freeMots(void);
 
-int execComInt(int N, char **P){
-	for(int i = 0; i<cmds_size; i++){
-		if(strcmp(P[0], cmds[i].nom)==0){
-			cmds[i].fptr(N,P);
-			return 0;
-		}
-	}
-	return 1;
-}
-
-int execComExt(char **P){
-
-	int pid;
-	
-	if ((pid = fork()) == -1) {
-		perror("fork"); 
-		return 1;
-	}
-	if (pid == 0) { /* code du fils */
-		// printf("Je suis le fils !\n");
-		execvp(P[0], P);
-		perror("execvp");
-		return 1;
-	}
-	else { /* code du pere */
-		// printf("Je suis le pere !\n");
-	
-		pid_t w;
-		pid_t wstatus;
-		w = waitpid((pid_t)pid, &wstatus, WUNTRACED | WCONTINUED);
-	
-		if (w == -1) {
-			perror("waitpid");
-			exit(EXIT_FAILURE);
-		}
-		return 0;
-	}
-}
-
-/* Commandes */
-
-int Sortie(int N, char *P[]) { 
-	write_history(HIST_FILE);
-	free(input);
-	free(header);
-	freeMots();
-	exit(0);
-}
-
-int Changedir(int N, char *P[]){
-	int i = 0;
-	if(N>1){
-		i = chdir(P[1]);
-	}
-	else{
-		i = chdir("~");
-	}
-	return i;
-}
-
-int printWorkingDir(int N, char *P[]){
-	char buf[1024];
-	getcwd(buf, 1024);
-	printf("%s\n",buf);
-	return 0;
-}
-
-int Vers(int N, char *P[]){
-	printf("Version : %s\n", V);
-	return 0;
-}
+/* Fonctions */
 
 void freeMots(void){
 	for(int i = 0; i<NMots; i++){
@@ -160,17 +90,6 @@ char* head(void){
 * Analyse des commandes
 **/
 
-char* copyString(char *s){
-	int N = strlen(s);
-	char *val = (char *)malloc(sizeof(char)*(N+1));
-	for(int i=0; i<N; i++){
-		val[i]=s[i];
-	}
-	val[N]='\0';
-	
-	return val;
-}
-
 int analyseCom(char *b){
 	
 	char* out;
@@ -183,7 +102,7 @@ int analyseCom(char *b){
     	
 	while((out = strsep(&b, " \t\n")) != NULL){
 		if(*out=='\0') continue;
-		Mots[cnt] = copyString(out);
+		Mots[cnt] = strdup(out);
 		cnt = cnt + 1;
 		if(cnt >=Mots_size){
 			Mots = realloc(Mots, (cnt+1)*sizeof(char *));
