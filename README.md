@@ -11,5 +11,9 @@ Vérification de la table des symboles :
 
 ```console
 objdump -t biceps
+nm biceps.o
+nm gescom.o
 ```
+
+Note : interne (t,b,d), externe (T,D,B), Undefined (U)
 
