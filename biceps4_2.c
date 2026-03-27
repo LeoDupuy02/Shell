@@ -1,49 +1,6 @@
-#include <unistd.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <readline/readline.h>
-#include <readline/history.h>
-#include <signal.h>
-#include <string.h>
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <bits/waitflags.h>
+#include "biceps.h"
 
-/* Globales */
-#define V "1.0"
-#define NBMAXC 10 /* Nb maxi de commandes internes */
-#define HIST_FILE "hist_file"
-int Mots_base_size = 64;
-int Mots_size = 64;
-static char ** Mots; /* le tableau des mots de la commande */
-static int NMots; /* nombre de mots de la commande */
-char *header;
-char *input;
-char *command;
-
-/* Définitions */
-char* head(void);
-void interrupt(int S);
-char* copyString(char *s);
-int analyseCom(char *b);
-void ajouteCom(char *nom, int (*fptr)(int argc, char *argv[]));
-void majComInt(void);
-void listeComInt(void);
-int execComInt(int N, char **P);
-int execComExt(char **P);
-int Sortie(int N, char *P[]);
-int Changedir(int N, char *P[]);
-int printWorkingDir(int N, char *P[]);
-int Vers(int N, char *P[]);
-void freeMots(void);
-
-/* Structures */
-typedef struct _Command{
-	char* nom;
-	int (*fptr)(int argc, char *argv[]);
-} Command;
-int cmds_size = 0;
-Command cmds[NBMAXC];
+/* Gestion des commandes */
 
 void ajouteCom(char *nom, int (*fptr)(int argc, char *argv[])){
 	if(cmds_size>=NBMAXC){
@@ -82,16 +39,7 @@ int execComInt(int N, char **P){
 }
 
 int execComExt(char **P){
-	/*
-	Cette fonction va :
-	• créer un processus fils (man 2 fork),
-	• qui va demander à exécuter le nouveau code (man 3 execvp),
-	• pendant que le père attend la fin de son fils (man 2 waitpid).
-	Il faut,
-	*/
-	
-	/* creation d'un nouveau processus */
-	
+
 	int pid;
 	
 	if ((pid = fork()) == -1) {
@@ -132,7 +80,6 @@ int Sortie(int N, char *P[]) {
 int Changedir(int N, char *P[]){
 	int i = 0;
 	if(N>1){
-		printf("%s\n", P[1]);
 		i = chdir(P[1]);
 	}
 	else{
@@ -153,21 +100,13 @@ int Vers(int N, char *P[]){
 	return 0;
 }
 
-void interrupt(int S)
-{
-	printf("Interrupt : %d\n", S);	
-	write_history(HIST_FILE);
-	free(input);
-	free(header);
-	freeMots();
-	exit(1);
-}
-
 void freeMots(void){
-	for(int i = 0; i<Mots_size; i++){
+	for(int i = 0; i<NMots; i++){
 		free(Mots[i]);
+		Mots[i] = NULL;
 	}
 	free(Mots);
+	Mots = NULL;
 }
  
 char* head(void){
@@ -182,7 +121,7 @@ char* head(void){
 	if(hostname != NULL){
 	
 		int exit = gethostname(hostname, 32);
-		if(exit>0){
+		if(exit<0){
 			perror("gethostname");
 			return NULL;
 		}
@@ -192,7 +131,8 @@ char* head(void){
 		else{
 			type = '$';
 		}
-		
+		/* protection */
+		hostname[31] = '\0';
 	}
 	else{
 		perror("getenv");
@@ -201,7 +141,7 @@ char* head(void){
 	
 	/* Malloc */
 	int i = 0;
-	int N= strlen(name)+strlen(hostname)+3;
+	int N= strlen(name)+strlen(hostname)+4;
 	char *header = (char *)malloc(sizeof(char)*N);
 	for(i = 0; i<(int)strlen(name); i++){
 		header[i] = name[i];
@@ -211,9 +151,14 @@ char* head(void){
 		header[i] = hostname[i-strlen(name)-1];
 	}
 	header[i] = type;
+	header[i+1] = ' ';
 		
 	return header;	
 }
+
+/**
+* Analyse des commandes
+**/
 
 char* copyString(char *s){
 	int N = strlen(s);
@@ -226,65 +171,76 @@ char* copyString(char *s){
 	return val;
 }
 
-
-
 int analyseCom(char *b){
-	
-	// Mots memory preparation
-	Mots = (char **)malloc(sizeof(char *)*Mots_base_size);
 	
 	char* out;
 	int cnt = 0;
 	
+	if (Mots == NULL) {
+        	Mots = malloc(sizeof(char *) * Mots_base_size);
+        	Mots_size = Mots_base_size;
+    	}
+    	
 	while((out = strsep(&b, " \t\n")) != NULL){
-		if(*out=='\0') return -1;
+		if(*out=='\0') continue;
 		Mots[cnt] = copyString(out);
 		cnt = cnt + 1;
 		if(cnt >=Mots_size){
-			Mots = realloc(Mots, cnt+1);
+			Mots = realloc(Mots, (cnt+1)*sizeof(char *));
 			Mots_size = cnt+1;
 		}
 	}
 	
+	
+	Mots[cnt] = NULL;
 	NMots = cnt;
 	
 	return cnt;
 }
 
+/**
+* MAIN
+**/
+ 
 int main(void)
 {
-	Mots = (char **)malloc(sizeof(char *)*Mots_base_size);
 	
-	signal(SIGINT,interrupt);
+	signal(SIGINT,SIG_IGN);
 	
+	/* Génération du début de ligne */
 	if((header=head())==NULL){
 		free(header);
 		return 1;
 	}
 	
-	read_history(HIST_FILE);
-	
+	/* Initialisation du shell */
+	read_history(HIST_FILE);	
 	majComInt();
 	
+	/* Main loop */
 	while(1){
-		printf("%s ", header);
-		input = readline(NULL);
+		input = readline(header);
+		if(input == NULL){
+			printf("EOF exit\n");
+			write_history(HIST_FILE);
+			free(input);
+			free(header);
+			exit(0);
+		}
+		save = input;
+		/* Gestion d'une série de commandes */
 		while((command=strsep(&input,";"))!=NULL){
+			add_history(command);
+			/* Gestion d'une commande */
 			int N = analyseCom(command);
-			printf("Yo\n");
 			if(N>0){
 				if(execComInt(NMots, Mots)){
 					execComExt(Mots);
-				}
-				add_history(command);	
-				freeMots();
+				}	
 			}
-			if(N==-1){
-				printf("\n");
-			}
+			freeMots();
 		}
-		
-	
+		free(save);
 	}
 
 	return 0;
